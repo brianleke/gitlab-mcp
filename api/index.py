@@ -7,9 +7,8 @@ connect via stdio (local) or use a bridge service.
 
 import os
 import json
-import sys
 
-# Server bearer token for authorization
+# Server bearer token for authorization (read at module level for performance)
 SERVER_BEARER_TOKEN = os.getenv("SERVER_BEARER_TOKEN", "")
 
 def verify_bearer_token(authorization_header):
@@ -31,28 +30,14 @@ def verify_bearer_token(authorization_header):
         return False
     
     # Extract token from "Bearer <token>" format
+    if not authorization_header or not isinstance(authorization_header, str):
+        return False
+    
     if not authorization_header.startswith("Bearer "):
         return False
     
     token = authorization_header[7:].strip()  # Remove "Bearer " prefix
     return token == SERVER_BEARER_TOKEN
-
-# Try to import server module (may fail if dependencies aren't available)
-mcp = None
-tools_list = []
-import_error = None
-try:
-    # Add parent directory to path to import server
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from server import mcp as server_mcp
-    mcp = server_mcp
-    # Try to get tools list
-    if hasattr(mcp, '_tools'):
-        tools_list = list(mcp._tools.keys())
-except Exception as e:
-    # If import fails, continue without it
-    import_error = str(e)
-    tools_list = []
 
 def create_response(body, status_code=200, headers=None):
     """Create a Vercel-compatible response"""
@@ -69,6 +54,37 @@ def create_response(body, status_code=200, headers=None):
         'body': json.dumps(body) if isinstance(body, dict) else str(body)
     }
 
+def get_tools_list():
+    """Try to get tools list from server module, but don't fail if it doesn't work"""
+    tools_list = []
+    import_error = None
+    
+    try:
+        import sys
+        # Add parent directory to path to import server
+        parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if parent_dir not in sys.path:
+            sys.path.insert(0, parent_dir)
+        
+        from server import mcp
+        # Try to get tools list
+        if hasattr(mcp, '_tools'):
+            tools_list = list(mcp._tools.keys())
+    except Exception as e:
+        import_error = str(e)
+        # Use default tools list
+        tools_list = [
+            "list_projects", "get_project", "create_project",
+            "list_issues", "get_issue", "create_issue", "update_issue",
+            "list_merge_requests", "get_merge_request", "create_merge_request", "update_merge_request",
+            "list_pipelines", "get_pipeline", "cancel_pipeline",
+            "list_branches", "get_branch",
+            "get_current_user", "list_users",
+            "list_groups", "get_group"
+        ]
+    
+    return tools_list, import_error
+
 def handler(request):
     """
     Vercel serverless function handler
@@ -79,20 +95,25 @@ def handler(request):
         if request is None:
             request = {}
         
-        # Get request method
+        # Get request method - Vercel Python functions receive request as dict
         if isinstance(request, dict):
             method = request.get('method', 'GET')
             path = request.get('path', '/')
             headers = request.get('headers', {}) or {}
         else:
+            # Fallback for object-style request
             method = getattr(request, 'method', 'GET')
             path = getattr(request, 'path', '/')
             headers = getattr(request, 'headers', {}) or {}
         
+        # Normalize headers to dict if needed
+        if not isinstance(headers, dict):
+            headers = {}
+        
         # Get authorization header (case-insensitive)
         auth_header = None
         for key, value in headers.items():
-            if key.lower() == 'authorization':
+            if key and isinstance(key, str) and key.lower() == 'authorization':
                 auth_header = value
                 break
         
@@ -124,19 +145,14 @@ def handler(request):
         
         # Handle health check
         if path == "/" or path == "/health" or method == "GET":
+            # Get tools list (only when needed, not at module level)
+            tools_list, import_error = get_tools_list()
+            
             response_body = {
                 "status": "ok",
                 "service": "GitLab MCP Server",
                 "version": "1.0.0",
-                "tools": tools_list if tools_list else [
-                    "list_projects", "get_project", "create_project",
-                    "list_issues", "get_issue", "create_issue", "update_issue",
-                    "list_merge_requests", "get_merge_request", "create_merge_request", "update_merge_request",
-                    "list_pipelines", "get_pipeline", "cancel_pipeline",
-                    "list_branches", "get_branch",
-                    "get_current_user", "list_users",
-                    "list_groups", "get_group"
-                ],
+                "tools": tools_list,
                 "note": "This server uses stdio protocol. For local use, run 'python server.py'"
             }
             
@@ -157,7 +173,8 @@ def handler(request):
             "type": type(e).__name__
         }
         # Include traceback in development
-        if os.getenv("VERCEL_ENV") != "production":
+        vercel_env = os.getenv("VERCEL_ENV", "")
+        if vercel_env != "production":
             error_details["traceback"] = traceback.format_exc()
         
         return create_response(
