@@ -1,690 +1,761 @@
-#!/usr/bin/env python3
 """
-GitLab MCP Server
-A Model Context Protocol server for integrating with GitLab.
+GitLab MCP Server using FastMCP
+Exposes GitLab API endpoints as MCP tools
 """
 
 import os
-import sys
-from typing import Any, Optional
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import (
-    Resource,
-    Tool,
-    TextContent,
-    ImageContent,
-    EmbeddedResource,
-    LoggingLevel
+import httpx
+from typing import Optional, List, Dict, Any
+from fastmcp import FastMCP
+
+# Initialize FastMCP server
+mcp = FastMCP("GitLab MCP Server")
+
+# GitLab API base URL - can be customized via environment variable
+GITLAB_BASE_URL = os.getenv("GITLAB_BASE_URL", "https://gitlab.com/api/v4")
+GITLAB_TOKEN = os.getenv("GITLAB_TOKEN", "")
+
+# Server bearer token for authorization (optional but recommended)
+SERVER_BEARER_TOKEN = os.getenv("SERVER_BEARER_TOKEN", "")
+
+# Create HTTP client for GitLab API
+client = httpx.AsyncClient(
+    base_url=GITLAB_BASE_URL,
+    headers={
+        "Authorization": f"Bearer {GITLAB_TOKEN}",
+        "Content-Type": "application/json",
+    },
+    timeout=30.0,
 )
-import gitlab
-import json
-from datetime import datetime
-
-# Initialize the MCP server
-app = Server("gitlab-mcp-server")
-
-# GitLab client instance (will be initialized on startup)
-gl: Optional[gitlab.Gitlab] = None
 
 
-def get_gitlab_client() -> gitlab.Gitlab:
-    """Get or create the GitLab client instance."""
-    global gl
-    if gl is None:
-        gitlab_url = os.getenv("GITLAB_URL", "https://gitlab.com")
-        gitlab_token = os.getenv("GITLAB_TOKEN")
-        
-        if not gitlab_token:
-            raise ValueError(
-                "GITLAB_TOKEN environment variable is required. "
-                "Get a personal access token from GitLab with 'api' scope."
-            )
-        
-        gl = gitlab.Gitlab(gitlab_url, private_token=gitlab_token)
-        gl.auth()
+def get_auth_headers() -> Dict[str, str]:
+    """Get authentication headers for GitLab API"""
+    headers = {"Content-Type": "application/json"}
+    if GITLAB_TOKEN:
+        headers["Authorization"] = f"Bearer {GITLAB_TOKEN}"
+    return headers
+
+
+def verify_bearer_token(authorization_header: Optional[str]) -> bool:
+    """
+    Verify bearer token authorization
     
-    return gl
-
-
-@app.list_resources()
-async def list_resources() -> list[Resource]:
-    """List available GitLab resources."""
-    try:
-        client = get_gitlab_client()
-        user = client.user
-        
-        return [
-            Resource(
-                uri="gitlab://user",
-                name="Current User",
-                description=f"GitLab user: {user.username}",
-                mimeType="application/json"
-            ),
-            Resource(
-                uri="gitlab://projects",
-                name="All Projects",
-                description="List of all accessible GitLab projects",
-                mimeType="application/json"
-            ),
-            Resource(
-                uri="gitlab://groups",
-                name="All Groups",
-                description="List of all accessible GitLab groups",
-                mimeType="application/json"
-            ),
-        ]
-    except Exception as e:
-        return [
-            Resource(
-                uri="gitlab://error",
-                name="Error",
-                description=f"Error connecting to GitLab: {str(e)}",
-                mimeType="text/plain"
-            )
-        ]
-
-
-@app.read_resource()
-async def read_resource(uri: str) -> str:
-    """Read a GitLab resource."""
-    try:
-        client = get_gitlab_client()
-        
-        if uri == "gitlab://user":
-            user = client.user
-            return json.dumps({
-                "id": user.id,
-                "username": user.username,
-                "name": user.name,
-                "email": user.email,
-                "avatar_url": user.avatar_url,
-            }, indent=2)
-        
-        elif uri == "gitlab://projects":
-            projects = client.projects.list(owned=True, get_all=True)
-            return json.dumps([
-                {
-                    "id": p.id,
-                    "name": p.name,
-                    "path": p.path,
-                    "path_with_namespace": p.path_with_namespace,
-                    "web_url": p.web_url,
-                    "description": p.description,
-                    "visibility": p.visibility,
-                    "default_branch": p.default_branch,
-                    "last_activity_at": p.last_activity_at,
-                }
-                for p in projects[:100]  # Limit to 100 for performance
-            ], indent=2)
-        
-        elif uri == "gitlab://groups":
-            groups = client.groups.list(get_all=True)
-            return json.dumps([
-                {
-                    "id": g.id,
-                    "name": g.name,
-                    "path": g.path,
-                    "full_path": g.full_path,
-                    "web_url": g.web_url,
-                    "description": g.description,
-                }
-                for g in groups[:100]  # Limit to 100 for performance
-            ], indent=2)
-        
-        else:
-            return f"Unknown resource: {uri}"
+    Args:
+        authorization_header: Authorization header value (e.g., "Bearer token123")
     
-    except Exception as e:
-        return json.dumps({"error": str(e)}, indent=2)
-
-
-@app.list_tools()
-async def list_tools() -> list[Tool]:
-    """List available GitLab tools."""
-    return [
-        Tool(
-            name="list_projects",
-            description="List GitLab projects. Can filter by owned, starred, or search query.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "owned": {
-                        "type": "boolean",
-                        "description": "Only return projects owned by the current user",
-                        "default": False
-                    },
-                    "starred": {
-                        "type": "boolean",
-                        "description": "Only return starred projects",
-                        "default": False
-                    },
-                    "search": {
-                        "type": "string",
-                        "description": "Search for projects by name"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of projects to return",
-                        "default": 20
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="get_project",
-            description="Get detailed information about a specific GitLab project",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "project_id": {
-                        "type": "string",
-                        "description": "Project ID or path (e.g., 'group/project' or numeric ID)"
-                    }
-                },
-                "required": ["project_id"]
-            }
-        ),
-        Tool(
-            name="list_issues",
-            description="List issues from a GitLab project",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "project_id": {
-                        "type": "string",
-                        "description": "Project ID or path"
-                    },
-                    "state": {
-                        "type": "string",
-                        "enum": ["opened", "closed", "all"],
-                        "description": "Filter by issue state",
-                        "default": "opened"
-                    },
-                    "labels": {
-                        "type": "string",
-                        "description": "Comma-separated list of label names"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of issues to return",
-                        "default": 20
-                    }
-                },
-                "required": ["project_id"]
-            }
-        ),
-        Tool(
-            name="get_issue",
-            description="Get detailed information about a specific issue",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "project_id": {
-                        "type": "string",
-                        "description": "Project ID or path"
-                    },
-                    "issue_iid": {
-                        "type": "integer",
-                        "description": "Issue IID (internal ID within the project)"
-                    }
-                },
-                "required": ["project_id", "issue_iid"]
-            }
-        ),
-        Tool(
-            name="create_issue",
-            description="Create a new issue in a GitLab project",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "project_id": {
-                        "type": "string",
-                        "description": "Project ID or path"
-                    },
-                    "title": {
-                        "type": "string",
-                        "description": "Issue title"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Issue description"
-                    },
-                    "labels": {
-                        "type": "string",
-                        "description": "Comma-separated list of labels"
-                    }
-                },
-                "required": ["project_id", "title"]
-            }
-        ),
-        Tool(
-            name="list_merge_requests",
-            description="List merge requests from a GitLab project",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "project_id": {
-                        "type": "string",
-                        "description": "Project ID or path"
-                    },
-                    "state": {
-                        "type": "string",
-                        "enum": ["opened", "closed", "merged", "all"],
-                        "description": "Filter by MR state",
-                        "default": "opened"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of MRs to return",
-                        "default": 20
-                    }
-                },
-                "required": ["project_id"]
-            }
-        ),
-        Tool(
-            name="get_merge_request",
-            description="Get detailed information about a specific merge request",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "project_id": {
-                        "type": "string",
-                        "description": "Project ID or path"
-                    },
-                    "mr_iid": {
-                        "type": "integer",
-                        "description": "Merge request IID"
-                    }
-                },
-                "required": ["project_id", "mr_iid"]
-            }
-        ),
-        Tool(
-            name="list_pipelines",
-            description="List CI/CD pipelines for a GitLab project",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "project_id": {
-                        "type": "string",
-                        "description": "Project ID or path"
-                    },
-                    "status": {
-                        "type": "string",
-                        "enum": ["running", "pending", "success", "failed", "canceled", "skipped"],
-                        "description": "Filter by pipeline status"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of pipelines to return",
-                        "default": 20
-                    }
-                },
-                "required": ["project_id"]
-            }
-        ),
-        Tool(
-            name="list_groups",
-            description="List GitLab groups",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "search": {
-                        "type": "string",
-                        "description": "Search for groups by name"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of groups to return",
-                        "default": 20
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="get_user_info",
-            description="Get information about the current authenticated user",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
-        ),
-    ]
-
-
-@app.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-    """Handle tool calls."""
-    try:
-        client = get_gitlab_client()
-        
-        if name == "list_projects":
-            owned = arguments.get("owned", False)
-            starred = arguments.get("starred", False)
-            search = arguments.get("search")
-            limit = arguments.get("limit", 20)
-            
-            params = {}
-            if owned:
-                params["owned"] = True
-            if starred:
-                params["starred"] = True
-            if search:
-                params["search"] = search
-            
-            projects = client.projects.list(**params, get_all=False)
-            projects = projects[:limit]
-            
-            result = [
-                {
-                    "id": p.id,
-                    "name": p.name,
-                    "path_with_namespace": p.path_with_namespace,
-                    "web_url": p.web_url,
-                    "description": p.description,
-                    "visibility": p.visibility,
-                    "default_branch": p.default_branch,
-                }
-                for p in projects
-            ]
-            
-            return [TextContent(
-                type="text",
-                text=json.dumps(result, indent=2)
-            )]
-        
-        elif name == "get_project":
-            project_id = arguments["project_id"]
-            project = client.projects.get(project_id)
-            
-            result = {
-                "id": project.id,
-                "name": project.name,
-                "path": project.path,
-                "path_with_namespace": project.path_with_namespace,
-                "web_url": project.web_url,
-                "description": project.description,
-                "visibility": project.visibility,
-                "default_branch": project.default_branch,
-                "ssh_url_to_repo": project.ssh_url_to_repo,
-                "http_url_to_repo": project.http_url_to_repo,
-                "created_at": project.created_at,
-                "last_activity_at": project.last_activity_at,
-                "star_count": project.star_count,
-                "forks_count": project.forks_count,
-            }
-            
-            return [TextContent(
-                type="text",
-                text=json.dumps(result, indent=2)
-            )]
-        
-        elif name == "list_issues":
-            project_id = arguments["project_id"]
-            state = arguments.get("state", "opened")
-            labels = arguments.get("labels")
-            limit = arguments.get("limit", 20)
-            
-            project = client.projects.get(project_id)
-            params = {"state": state}
-            if labels:
-                params["labels"] = labels.split(",")
-            
-            issues = project.issues.list(**params, get_all=False)
-            issues = issues[:limit]
-            
-            result = [
-                {
-                    "iid": issue.iid,
-                    "title": issue.title,
-                    "description": issue.description,
-                    "state": issue.state,
-                    "labels": issue.labels,
-                    "author": {
-                        "username": issue.author["username"],
-                        "name": issue.author["name"],
-                    },
-                    "created_at": issue.created_at,
-                    "updated_at": issue.updated_at,
-                    "web_url": issue.web_url,
-                }
-                for issue in issues
-            ]
-            
-            return [TextContent(
-                type="text",
-                text=json.dumps(result, indent=2)
-            )]
-        
-        elif name == "get_issue":
-            project_id = arguments["project_id"]
-            issue_iid = arguments["issue_iid"]
-            
-            project = client.projects.get(project_id)
-            issue = project.issues.get(issue_iid)
-            
-            result = {
-                "iid": issue.iid,
-                "title": issue.title,
-                "description": issue.description,
-                "state": issue.state,
-                "labels": issue.labels,
-                "author": {
-                    "username": issue.author["username"],
-                    "name": issue.author["name"],
-                },
-                "assignees": [
-                    {
-                        "username": a["username"],
-                        "name": a["name"],
-                    }
-                    for a in issue.assignees
-                ],
-                "created_at": issue.created_at,
-                "updated_at": issue.updated_at,
-                "web_url": issue.web_url,
-            }
-            
-            return [TextContent(
-                type="text",
-                text=json.dumps(result, indent=2)
-            )]
-        
-        elif name == "create_issue":
-            project_id = arguments["project_id"]
-            title = arguments["title"]
-            description = arguments.get("description", "")
-            labels = arguments.get("labels", "")
-            
-            project = client.projects.get(project_id)
-            issue_data = {"title": title, "description": description}
-            if labels:
-                issue_data["labels"] = labels.split(",")
-            
-            issue = project.issues.create(issue_data)
-            
-            result = {
-                "iid": issue.iid,
-                "title": issue.title,
-                "state": issue.state,
-                "web_url": issue.web_url,
-                "message": "Issue created successfully"
-            }
-            
-            return [TextContent(
-                type="text",
-                text=json.dumps(result, indent=2)
-            )]
-        
-        elif name == "list_merge_requests":
-            project_id = arguments["project_id"]
-            state = arguments.get("state", "opened")
-            limit = arguments.get("limit", 20)
-            
-            project = client.projects.get(project_id)
-            mrs = project.mergerequests.list(state=state, get_all=False)
-            mrs = mrs[:limit]
-            
-            result = [
-                {
-                    "iid": mr.iid,
-                    "title": mr.title,
-                    "state": mr.state,
-                    "source_branch": mr.source_branch,
-                    "target_branch": mr.target_branch,
-                    "author": {
-                        "username": mr.author["username"],
-                        "name": mr.author["name"],
-                    },
-                    "created_at": mr.created_at,
-                    "updated_at": mr.updated_at,
-                    "web_url": mr.web_url,
-                }
-                for mr in mrs
-            ]
-            
-            return [TextContent(
-                type="text",
-                text=json.dumps(result, indent=2)
-            )]
-        
-        elif name == "get_merge_request":
-            project_id = arguments["project_id"]
-            mr_iid = arguments["mr_iid"]
-            
-            project = client.projects.get(project_id)
-            mr = project.mergerequests.get(mr_iid)
-            
-            result = {
-                "iid": mr.iid,
-                "title": mr.title,
-                "description": mr.description,
-                "state": mr.state,
-                "source_branch": mr.source_branch,
-                "target_branch": mr.target_branch,
-                "author": {
-                    "username": mr.author["username"],
-                    "name": mr.author["name"],
-                },
-                "assignees": [
-                    {
-                        "username": a["username"],
-                        "name": a["name"],
-                    }
-                    for a in mr.assignees
-                ],
-                "created_at": mr.created_at,
-                "updated_at": mr.updated_at,
-                "web_url": mr.web_url,
-            }
-            
-            return [TextContent(
-                type="text",
-                text=json.dumps(result, indent=2)
-            )]
-        
-        elif name == "list_pipelines":
-            project_id = arguments["project_id"]
-            status = arguments.get("status")
-            limit = arguments.get("limit", 20)
-            
-            project = client.projects.get(project_id)
-            params = {}
-            if status:
-                params["status"] = status
-            
-            pipelines = project.pipelines.list(**params, get_all=False)
-            pipelines = pipelines[:limit]
-            
-            result = [
-                {
-                    "id": pipeline.id,
-                    "status": pipeline.status,
-                    "ref": pipeline.ref,
-                    "sha": pipeline.sha,
-                    "web_url": pipeline.web_url,
-                    "created_at": pipeline.created_at,
-                    "updated_at": pipeline.updated_at,
-                }
-                for pipeline in pipelines
-            ]
-            
-            return [TextContent(
-                type="text",
-                text=json.dumps(result, indent=2)
-            )]
-        
-        elif name == "list_groups":
-            search = arguments.get("search")
-            limit = arguments.get("limit", 20)
-            
-            params = {}
-            if search:
-                params["search"] = search
-            
-            groups = client.groups.list(**params, get_all=False)
-            groups = groups[:limit]
-            
-            result = [
-                {
-                    "id": g.id,
-                    "name": g.name,
-                    "path": g.path,
-                    "full_path": g.full_path,
-                    "web_url": g.web_url,
-                    "description": g.description,
-                }
-                for g in groups
-            ]
-            
-            return [TextContent(
-                type="text",
-                text=json.dumps(result, indent=2)
-            )]
-        
-        elif name == "get_user_info":
-            user = client.user
-            
-            result = {
-                "id": user.id,
-                "username": user.username,
-                "name": user.name,
-                "email": user.email,
-                "avatar_url": user.avatar_url,
-                "web_url": user.web_url,
-            }
-            
-            return [TextContent(
-                type="text",
-                text=json.dumps(result, indent=2)
-            )]
-        
-        else:
-            return [TextContent(
-                type="text",
-                text=json.dumps({"error": f"Unknown tool: {name}"}, indent=2)
-            )]
+    Returns:
+        True if token is valid or no token is required, False otherwise
+    """
+    # If no server token is configured, allow access (backward compatible)
+    if not SERVER_BEARER_TOKEN:
+        return True
     
-    except Exception as e:
-        return [TextContent(
-            type="text",
-            text=json.dumps({"error": str(e)}, indent=2)
-        )]
+    # If token is configured, require valid bearer token
+    if not authorization_header:
+        return False
+    
+    # Extract token from "Bearer <token>" format
+    if not authorization_header.startswith("Bearer "):
+        return False
+    
+    token = authorization_header[7:].strip()  # Remove "Bearer " prefix
+    return token == SERVER_BEARER_TOKEN
 
 
-async def main():
-    """Main entry point for the MCP server."""
-    async with stdio_server() as (read_stream, write_stream):
-        await app.run(
-            read_stream,
-            write_stream,
-            app.create_initialization_options()
-        )
+# ==================== PROJECT TOOLS ====================
+
+@mcp.tool()
+async def list_projects(
+    search: Optional[str] = None,
+    owned: bool = False,
+    starred: bool = False,
+    visibility: Optional[str] = None,
+    order_by: str = "created_at",
+    sort: str = "desc",
+    per_page: int = 20,
+    page: int = 1,
+) -> Dict[str, Any]:
+    """
+    List GitLab projects
+    
+    Args:
+        search: Search projects by name
+        owned: Return only projects owned by the authenticated user
+        starred: Return only starred projects
+        visibility: Filter by visibility (public, internal, private)
+        order_by: Order by field (id, name, path, created_at, updated_at, last_activity_at)
+        sort: Sort order (asc, desc)
+        per_page: Number of results per page (max 100)
+        page: Page number
+    
+    Returns:
+        List of projects with their details
+    """
+    params = {
+        "order_by": order_by,
+        "sort": sort,
+        "per_page": min(per_page, 100),
+        "page": page,
+    }
+    
+    if search:
+        params["search"] = search
+    if owned:
+        params["owned"] = "true"
+    if starred:
+        params["starred"] = "true"
+    if visibility:
+        params["visibility"] = visibility
+    
+    response = await client.get("/projects", params=params, headers=get_auth_headers())
+    response.raise_for_status()
+    return {"projects": response.json(), "total": len(response.json())}
 
 
+@mcp.tool()
+async def get_project(project_id: str) -> Dict[str, Any]:
+    """
+    Get details of a specific GitLab project
+    
+    Args:
+        project_id: Project ID or path (e.g., "namespace/project" or numeric ID)
+    
+    Returns:
+        Project details
+    """
+    response = await client.get(f"/projects/{project_id}", headers=get_auth_headers())
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool()
+async def create_project(
+    name: str,
+    path: Optional[str] = None,
+    namespace_id: Optional[int] = None,
+    description: Optional[str] = None,
+    visibility: str = "private",
+    initialize_with_readme: bool = False,
+) -> Dict[str, Any]:
+    """
+    Create a new GitLab project
+    
+    Args:
+        name: Project name
+        path: Repository path (defaults to name if not provided)
+        namespace_id: Namespace ID for the project
+        description: Project description
+        visibility: Project visibility (private, internal, public)
+        initialize_with_readme: Initialize repository with a README
+    
+    Returns:
+        Created project details
+    """
+    data = {
+        "name": name,
+        "visibility": visibility,
+        "initialize_with_readme": initialize_with_readme,
+    }
+    
+    if path:
+        data["path"] = path
+    if namespace_id:
+        data["namespace_id"] = namespace_id
+    if description:
+        data["description"] = description
+    
+    response = await client.post("/projects", json=data, headers=get_auth_headers())
+    response.raise_for_status()
+    return response.json()
+
+
+# ==================== ISSUE TOOLS ====================
+
+@mcp.tool()
+async def list_issues(
+    project_id: Optional[str] = None,
+    state: str = "opened",
+    labels: Optional[str] = None,
+    search: Optional[str] = None,
+    assignee_username: Optional[str] = None,
+    author_username: Optional[str] = None,
+    per_page: int = 20,
+    page: int = 1,
+) -> Dict[str, Any]:
+    """
+    List GitLab issues
+    
+    Args:
+        project_id: Filter by project ID or path (optional, if not provided lists all issues)
+        state: Filter by state (opened, closed, all)
+        labels: Comma-separated list of label names
+        search: Search issues by title and description
+        assignee_username: Filter by assignee username
+        author_username: Filter by author username
+        per_page: Number of results per page (max 100)
+        page: Page number
+    
+    Returns:
+        List of issues
+    """
+    params = {
+        "state": state,
+        "per_page": min(per_page, 100),
+        "page": page,
+    }
+    
+    if labels:
+        params["labels"] = labels
+    if search:
+        params["search"] = search
+    if assignee_username:
+        params["assignee_username"] = assignee_username
+    if author_username:
+        params["author_username"] = author_username
+    
+    endpoint = f"/projects/{project_id}/issues" if project_id else "/issues"
+    response = await client.get(endpoint, params=params, headers=get_auth_headers())
+    response.raise_for_status()
+    return {"issues": response.json(), "total": len(response.json())}
+
+
+@mcp.tool()
+async def get_issue(project_id: str, issue_iid: int) -> Dict[str, Any]:
+    """
+    Get details of a specific issue
+    
+    Args:
+        project_id: Project ID or path
+        issue_iid: Issue IID (internal ID)
+    
+    Returns:
+        Issue details
+    """
+    response = await client.get(
+        f"/projects/{project_id}/issues/{issue_iid}",
+        headers=get_auth_headers()
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool()
+async def create_issue(
+    project_id: str,
+    title: str,
+    description: Optional[str] = None,
+    labels: Optional[str] = None,
+    assignee_ids: Optional[List[int]] = None,
+    milestone_id: Optional[int] = None,
+    due_date: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Create a new issue in a project
+    
+    Args:
+        project_id: Project ID or path
+        title: Issue title
+        description: Issue description
+        labels: Comma-separated list of label names
+        assignee_ids: List of user IDs to assign the issue to
+        milestone_id: Milestone ID
+        due_date: Due date in YYYY-MM-DD format
+    
+    Returns:
+        Created issue details
+    """
+    data = {"title": title}
+    
+    if description:
+        data["description"] = description
+    if labels:
+        data["labels"] = labels
+    if assignee_ids:
+        data["assignee_ids"] = assignee_ids
+    if milestone_id:
+        data["milestone_id"] = milestone_id
+    if due_date:
+        data["due_date"] = due_date
+    
+    response = await client.post(
+        f"/projects/{project_id}/issues",
+        json=data,
+        headers=get_auth_headers()
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool()
+async def update_issue(
+    project_id: str,
+    issue_iid: int,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    state_event: Optional[str] = None,
+    labels: Optional[str] = None,
+    assignee_ids: Optional[List[int]] = None,
+) -> Dict[str, Any]:
+    """
+    Update an existing issue
+    
+    Args:
+        project_id: Project ID or path
+        issue_iid: Issue IID
+        title: New title
+        description: New description
+        state_event: State change (close, reopen)
+        labels: Comma-separated list of label names
+        assignee_ids: List of user IDs to assign the issue to
+    
+    Returns:
+        Updated issue details
+    """
+    data = {}
+    
+    if title:
+        data["title"] = title
+    if description:
+        data["description"] = description
+    if state_event:
+        data["state_event"] = state_event
+    if labels:
+        data["labels"] = labels
+    if assignee_ids is not None:
+        data["assignee_ids"] = assignee_ids
+    
+    response = await client.put(
+        f"/projects/{project_id}/issues/{issue_iid}",
+        json=data,
+        headers=get_auth_headers()
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+# ==================== MERGE REQUEST TOOLS ====================
+
+@mcp.tool()
+async def list_merge_requests(
+    project_id: Optional[str] = None,
+    state: str = "opened",
+    labels: Optional[str] = None,
+    search: Optional[str] = None,
+    target_branch: Optional[str] = None,
+    source_branch: Optional[str] = None,
+    per_page: int = 20,
+    page: int = 1,
+) -> Dict[str, Any]:
+    """
+    List GitLab merge requests
+    
+    Args:
+        project_id: Filter by project ID or path (optional)
+        state: Filter by state (opened, closed, locked, merged, all)
+        labels: Comma-separated list of label names
+        search: Search merge requests by title and description
+        target_branch: Filter by target branch
+        source_branch: Filter by source branch
+        per_page: Number of results per page (max 100)
+        page: Page number
+    
+    Returns:
+        List of merge requests
+    """
+    params = {
+        "state": state,
+        "per_page": min(per_page, 100),
+        "page": page,
+    }
+    
+    if labels:
+        params["labels"] = labels
+    if search:
+        params["search"] = search
+    if target_branch:
+        params["target_branch"] = target_branch
+    if source_branch:
+        params["source_branch"] = source_branch
+    
+    endpoint = f"/projects/{project_id}/merge_requests" if project_id else "/merge_requests"
+    response = await client.get(endpoint, params=params, headers=get_auth_headers())
+    response.raise_for_status()
+    return {"merge_requests": response.json(), "total": len(response.json())}
+
+
+@mcp.tool()
+async def get_merge_request(project_id: str, merge_request_iid: int) -> Dict[str, Any]:
+    """
+    Get details of a specific merge request
+    
+    Args:
+        project_id: Project ID or path
+        merge_request_iid: Merge request IID
+    
+    Returns:
+        Merge request details
+    """
+    response = await client.get(
+        f"/projects/{project_id}/merge_requests/{merge_request_iid}",
+        headers=get_auth_headers()
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool()
+async def create_merge_request(
+    project_id: str,
+    source_branch: str,
+    target_branch: str,
+    title: str,
+    description: Optional[str] = None,
+    labels: Optional[str] = None,
+    assignee_id: Optional[int] = None,
+    remove_source_branch: bool = False,
+) -> Dict[str, Any]:
+    """
+    Create a new merge request
+    
+    Args:
+        project_id: Project ID or path
+        source_branch: Source branch name
+        target_branch: Target branch name
+        title: Merge request title
+        description: Merge request description
+        labels: Comma-separated list of label names
+        assignee_id: User ID to assign the MR to
+        remove_source_branch: Remove source branch when merged
+    
+    Returns:
+        Created merge request details
+    """
+    data = {
+        "source_branch": source_branch,
+        "target_branch": target_branch,
+        "title": title,
+        "remove_source_branch": remove_source_branch,
+    }
+    
+    if description:
+        data["description"] = description
+    if labels:
+        data["labels"] = labels
+    if assignee_id:
+        data["assignee_id"] = assignee_id
+    
+    response = await client.post(
+        f"/projects/{project_id}/merge_requests",
+        json=data,
+        headers=get_auth_headers()
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool()
+async def update_merge_request(
+    project_id: str,
+    merge_request_iid: int,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    state_event: Optional[str] = None,
+    labels: Optional[str] = None,
+    assignee_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Update an existing merge request
+    
+    Args:
+        project_id: Project ID or path
+        merge_request_iid: Merge request IID
+        title: New title
+        description: New description
+        state_event: State change (close, reopen, merge)
+        labels: Comma-separated list of label names
+        assignee_id: User ID to assign the MR to
+    
+    Returns:
+        Updated merge request details
+    """
+    data = {}
+    
+    if title:
+        data["title"] = title
+    if description:
+        data["description"] = description
+    if state_event:
+        data["state_event"] = state_event
+    if labels:
+        data["labels"] = labels
+    if assignee_id is not None:
+        data["assignee_id"] = assignee_id
+    
+    response = await client.put(
+        f"/projects/{project_id}/merge_requests/{merge_request_iid}",
+        json=data,
+        headers=get_auth_headers()
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+# ==================== PIPELINE TOOLS ====================
+
+@mcp.tool()
+async def list_pipelines(
+    project_id: str,
+    scope: Optional[str] = None,
+    status: Optional[str] = None,
+    ref: Optional[str] = None,
+    per_page: int = 20,
+    page: int = 1,
+) -> Dict[str, Any]:
+    """
+    List GitLab CI/CD pipelines for a project
+    
+    Args:
+        project_id: Project ID or path
+        scope: Filter by scope (running, pending, finished, branches, tags)
+        status: Filter by status (created, waiting_for_resource, preparing, pending, running, success, failed, canceled, skipped, manual, scheduled)
+        ref: Filter by branch or tag
+        per_page: Number of results per page (max 100)
+        page: Page number
+    
+    Returns:
+        List of pipelines
+    """
+    params = {
+        "per_page": min(per_page, 100),
+        "page": page,
+    }
+    
+    if scope:
+        params["scope"] = scope
+    if status:
+        params["status"] = status
+    if ref:
+        params["ref"] = ref
+    
+    response = await client.get(
+        f"/projects/{project_id}/pipelines",
+        params=params,
+        headers=get_auth_headers()
+    )
+    response.raise_for_status()
+    return {"pipelines": response.json(), "total": len(response.json())}
+
+
+@mcp.tool()
+async def get_pipeline(project_id: str, pipeline_id: int) -> Dict[str, Any]:
+    """
+    Get details of a specific pipeline
+    
+    Args:
+        project_id: Project ID or path
+        pipeline_id: Pipeline ID
+    
+    Returns:
+        Pipeline details
+    """
+    response = await client.get(
+        f"/projects/{project_id}/pipelines/{pipeline_id}",
+        headers=get_auth_headers()
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool()
+async def cancel_pipeline(project_id: str, pipeline_id: int) -> Dict[str, Any]:
+    """
+    Cancel a running pipeline
+    
+    Args:
+        project_id: Project ID or path
+        pipeline_id: Pipeline ID
+    
+    Returns:
+        Cancelled pipeline details
+    """
+    response = await client.post(
+        f"/projects/{project_id}/pipelines/{pipeline_id}/cancel",
+        headers=get_auth_headers()
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+# ==================== BRANCH TOOLS ====================
+
+@mcp.tool()
+async def list_branches(
+    project_id: str,
+    search: Optional[str] = None,
+    per_page: int = 20,
+    page: int = 1,
+) -> Dict[str, Any]:
+    """
+    List branches in a project
+    
+    Args:
+        project_id: Project ID or path
+        search: Search branches by name
+        per_page: Number of results per page (max 100)
+        page: Page number
+    
+    Returns:
+        List of branches
+    """
+    params = {
+        "per_page": min(per_page, 100),
+        "page": page,
+    }
+    
+    if search:
+        params["search"] = search
+    
+    response = await client.get(
+        f"/projects/{project_id}/repository/branches",
+        params=params,
+        headers=get_auth_headers()
+    )
+    response.raise_for_status()
+    return {"branches": response.json(), "total": len(response.json())}
+
+
+@mcp.tool()
+async def get_branch(project_id: str, branch: str) -> Dict[str, Any]:
+    """
+    Get details of a specific branch
+    
+    Args:
+        project_id: Project ID or path
+        branch: Branch name
+    
+    Returns:
+        Branch details
+    """
+    response = await client.get(
+        f"/projects/{project_id}/repository/branches/{branch}",
+        headers=get_auth_headers()
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+# ==================== USER TOOLS ====================
+
+@mcp.tool()
+async def get_current_user() -> Dict[str, Any]:
+    """
+    Get details of the currently authenticated user
+    
+    Returns:
+        Current user details
+    """
+    response = await client.get("/user", headers=get_auth_headers())
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool()
+async def list_users(
+    search: Optional[str] = None,
+    username: Optional[str] = None,
+    active: bool = True,
+    per_page: int = 20,
+    page: int = 1,
+) -> Dict[str, Any]:
+    """
+    List GitLab users
+    
+    Args:
+        search: Search users by name or email
+        username: Filter by username
+        active: Filter by active status
+        per_page: Number of results per page (max 100)
+        page: Page number
+    
+    Returns:
+        List of users
+    """
+    params = {
+        "active": active,
+        "per_page": min(per_page, 100),
+        "page": page,
+    }
+    
+    if search:
+        params["search"] = search
+    if username:
+        params["username"] = username
+    
+    response = await client.get("/users", params=params, headers=get_auth_headers())
+    response.raise_for_status()
+    return {"users": response.json(), "total": len(response.json())}
+
+
+# ==================== GROUP TOOLS ====================
+
+@mcp.tool()
+async def list_groups(
+    search: Optional[str] = None,
+    owned: bool = False,
+    all_available: bool = False,
+    per_page: int = 20,
+    page: int = 1,
+) -> Dict[str, Any]:
+    """
+    List GitLab groups
+    
+    Args:
+        search: Search groups by name
+        owned: Return only groups owned by the authenticated user
+        all_available: Show all available groups
+        per_page: Number of results per page (max 100)
+        page: Page number
+    
+    Returns:
+        List of groups
+    """
+    params = {
+        "per_page": min(per_page, 100),
+        "page": page,
+    }
+    
+    if search:
+        params["search"] = search
+    if owned:
+        params["owned"] = "true"
+    if all_available:
+        params["all_available"] = "true"
+    
+    response = await client.get("/groups", params=params, headers=get_auth_headers())
+    response.raise_for_status()
+    return {"groups": response.json(), "total": len(response.json())}
+
+
+@mcp.tool()
+async def get_group(group_id: str) -> Dict[str, Any]:
+    """
+    Get details of a specific group
+    
+    Args:
+        group_id: Group ID or path
+    
+    Returns:
+        Group details
+    """
+    response = await client.get(f"/groups/{group_id}", headers=get_auth_headers())
+    response.raise_for_status()
+    return response.json()
+
+
+# Main entry point for local development
+# Note: FastMCP uses stdio protocol for MCP communication
+# For Vercel deployment, see api/index.py for HTTP handler
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    mcp.run()
 

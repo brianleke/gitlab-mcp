@@ -1,237 +1,248 @@
 # GitLab MCP Server
 
-A Model Context Protocol (MCP) server that integrates with GitLab, enabling AI assistants to interact with GitLab projects, issues, merge requests, pipelines, and more.
-
-**Now available as a REST API on Vercel!** See [DEPLOYMENT.md](./DEPLOYMENT.md) for deployment instructions.
+A Model Context Protocol (MCP) server for GitLab built with FastMCP, exposing GitLab API endpoints as MCP tools. This server can be deployed to Vercel and accessed by MCP clients like Cursor or Claude.
 
 ## Features
 
-- **Projects**: List, search, and get detailed information about GitLab projects
-- **Issues**: List, view, and create issues
-- **Merge Requests**: List and view merge requests
-- **Pipelines**: View CI/CD pipeline status and history
-- **Groups**: List and search GitLab groups
-- **User Info**: Get information about the authenticated user
+This MCP server provides tools for interacting with GitLab:
 
-## Prerequisites
+### Projects
+- List projects with filtering and search
+- Get project details
+- Create new projects
 
-- Python 3.8 or higher
-- A GitLab account with a Personal Access Token
+### Issues
+- List issues (project-specific or across all projects)
+- Get issue details
+- Create new issues
+- Update existing issues
 
-## Installation
+### Merge Requests
+- List merge requests
+- Get merge request details
+- Create new merge requests
+- Update merge requests
 
-1. Clone or download this repository
+### Pipelines
+- List CI/CD pipelines
+- Get pipeline details
+- Cancel running pipelines
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+### Branches
+- List repository branches
+- Get branch details
 
-3. Set up environment variables:
-```bash
-cp .env.example .env
-```
+### Users
+- Get current authenticated user
+- List users with search
 
-4. Edit `.env` and add your GitLab configuration:
-   - `GITLAB_URL`: Your GitLab instance URL (default: `https://gitlab.com`)
-   - `GITLAB_TOKEN`: Your GitLab Personal Access Token
+### Groups
+- List groups
+- Get group details
 
-### Getting a GitLab Personal Access Token
+## Setup
+
+### Local Development
+
+1. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Set up environment variables:**
+   ```bash
+   cp .env.example .env
+   ```
+   
+   Edit `.env` and add your GitLab personal access token:
+   ```
+   GITLAB_TOKEN=your_token_here
+   GITLAB_BASE_URL=https://gitlab.com/api/v4
+   ```
+
+3. **Run the server:**
+   ```bash
+   python server.py
+   ```
+
+### Creating a GitLab Personal Access Token
 
 1. Go to your GitLab profile settings
-2. Navigate to **Access Tokens** (or visit `https://gitlab.com/-/user_settings/personal_access_tokens`)
+2. Navigate to "Access Tokens"
 3. Create a new token with the following scopes:
    - `api` - Full API access
    - `read_api` - Read-only API access (if you only need read operations)
-4. Copy the token and add it to your `.env` file
+   - `read_user` - Read user information
+   - `read_repository` - Read repository data
+   - `write_repository` - Write repository data (for creating/updating)
 
-## Usage
+## Deployment to Vercel
 
-### Running the Server
+### Using Vercel CLI
 
-The server uses stdio (standard input/output) for communication, which is the standard way MCP servers communicate with clients.
+1. **Install Vercel CLI:**
+   ```bash
+   npm install -g vercel
+   ```
 
-**Note**: You typically don't run the server directly. Instead, configure it in your MCP client (Cursor, Claude Desktop, etc.). See [MCP_SETUP.md](./MCP_SETUP.md) for detailed setup instructions.
+2. **Deploy:**
+   ```bash
+   vercel
+   ```
 
-To test the server directly:
-```bash
-python server.py
+3. **Set environment variables:**
+   ```bash
+   vercel env add GITLAB_TOKEN
+   vercel env add GITLAB_BASE_URL
+   ```
+
+4. **Redeploy with environment variables:**
+   ```bash
+   vercel --prod
+   ```
+
+### Using Vercel Dashboard
+
+1. Import your GitLab repository to Vercel
+2. In project settings, add environment variables:
+   - `GITLAB_TOKEN`: Your GitLab personal access token
+   - `GITLAB_BASE_URL`: `https://gitlab.com/api/v4` (or your self-hosted instance URL)
+   - `SERVER_BEARER_TOKEN`: (Optional) A bearer token to secure HTTP endpoints
+3. Deploy the project
+
+## Configuration
+
+### Environment Variables
+
+- `GITLAB_TOKEN` (required): Your GitLab personal access token
+- `GITLAB_BASE_URL` (optional): GitLab API base URL (defaults to `https://gitlab.com/api/v4`)
+- `SERVER_BEARER_TOKEN` (optional): Bearer token for securing the MCP server HTTP endpoints. If set, clients must provide this token in the `Authorization: Bearer <token>` header when accessing HTTP endpoints (e.g., Vercel deployment). Leave empty to disable bearer token authentication.
+
+### Self-Hosted GitLab
+
+If you're using a self-hosted GitLab instance, set `GITLAB_BASE_URL` to your instance's API URL:
 ```
-(The server will wait for input - this is normal. Press Ctrl+C to exit.)
+GITLAB_BASE_URL=https://your-gitlab-instance.com/api/v4
+```
 
-### With MCP Clients
+## Connecting MCP Clients
 
-To use this server with an MCP client (like Cursor or Claude Desktop), you need to configure it in your MCP client settings.
+**Important Note:** MCP servers use the stdio (standard input/output) protocol for communication. The Vercel deployment provides a health check endpoint, but MCP clients connect via stdio, not HTTP.
 
-**See [MCP_SETUP.md](./MCP_SETUP.md) for complete setup instructions.**
+### Local Development (Recommended)
 
-Quick example for Cursor:
+For local development, MCP clients connect directly to the server via stdio:
+
+#### Cursor
+
+Add to your Cursor MCP settings (usually in `.cursor/mcp.json` or Cursor settings):
+
 ```json
 {
   "mcpServers": {
     "gitlab": {
-      "command": "python3",
+      "command": "python",
       "args": ["/absolute/path/to/GitLab MCP/server.py"],
       "env": {
-        "GITLAB_URL": "https://gitlab.com",
-        "GITLAB_TOKEN": "your_token_here"
+        "GITLAB_TOKEN": "your_token_here",
+        "GITLAB_BASE_URL": "https://gitlab.com/api/v4"
       }
     }
   }
 }
 ```
 
-**Important**: Use the absolute path to `server.py`. The tools will appear in your MCP client once properly configured.
+#### Claude Desktop
+
+Add to your Claude Desktop configuration file:
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "gitlab": {
+      "command": "python",
+      "args": ["/absolute/path/to/GitLab MCP/server.py"],
+      "env": {
+        "GITLAB_TOKEN": "your_token_here",
+        "GITLAB_BASE_URL": "https://gitlab.com/api/v4"
+      }
+    }
+  }
+}
+```
+
+### Vercel Deployment
+
+The Vercel deployment provides:
+- Health check endpoint at `/` or `/health`
+- Server metadata endpoint
+
+**Note:** For MCP clients to use a Vercel-deployed server, you would need a bridge service that converts HTTP to stdio, or use the server locally as shown above.
+
+To check if your Vercel deployment is working:
+
+**Without bearer token (if SERVER_BEARER_TOKEN is not set):**
+```bash
+curl https://your-vercel-deployment-url.vercel.app/health
+```
+
+**With bearer token (if SERVER_BEARER_TOKEN is set):**
+```bash
+curl -H "Authorization: Bearer your_server_bearer_token" \
+  https://your-vercel-deployment-url.vercel.app/health
+```
+
+If the bearer token is missing or incorrect, you'll receive a `401 Unauthorized` response.
 
 ## Available Tools
 
-### `list_projects`
-List GitLab projects with optional filters.
+### Project Tools
+- `list_projects` - List GitLab projects with filtering
+- `get_project` - Get project details
+- `create_project` - Create a new project
 
-**Parameters:**
-- `owned` (boolean): Only return projects owned by the current user
-- `starred` (boolean): Only return starred projects
-- `search` (string): Search for projects by name
-- `limit` (integer): Maximum number of projects to return (default: 20)
+### Issue Tools
+- `list_issues` - List issues (project-specific or all)
+- `get_issue` - Get issue details
+- `create_issue` - Create a new issue
+- `update_issue` - Update an existing issue
 
-### `get_project`
-Get detailed information about a specific project.
+### Merge Request Tools
+- `list_merge_requests` - List merge requests
+- `get_merge_request` - Get merge request details
+- `create_merge_request` - Create a new merge request
+- `update_merge_request` - Update a merge request
 
-**Parameters:**
-- `project_id` (string, required): Project ID or path (e.g., "group/project" or numeric ID)
+### Pipeline Tools
+- `list_pipelines` - List CI/CD pipelines
+- `get_pipeline` - Get pipeline details
+- `cancel_pipeline` - Cancel a running pipeline
 
-### `list_issues`
-List issues from a GitLab project.
+### Branch Tools
+- `list_branches` - List repository branches
+- `get_branch` - Get branch details
 
-**Parameters:**
-- `project_id` (string, required): Project ID or path
-- `state` (string): Filter by state - "opened", "closed", or "all" (default: "opened")
-- `labels` (string): Comma-separated list of label names
-- `limit` (integer): Maximum number of issues to return (default: 20)
+### User Tools
+- `get_current_user` - Get current authenticated user
+- `list_users` - List users with search
 
-### `get_issue`
-Get detailed information about a specific issue.
+### Group Tools
+- `list_groups` - List groups
+- `get_group` - Get group details
 
-**Parameters:**
-- `project_id` (string, required): Project ID or path
-- `issue_iid` (integer, required): Issue IID (internal ID within the project)
+## Example Usage
 
-### `create_issue`
-Create a new issue in a GitLab project.
+Once connected to an MCP client, you can use natural language to interact with GitLab:
 
-**Parameters:**
-- `project_id` (string, required): Project ID or path
-- `title` (string, required): Issue title
-- `description` (string): Issue description
-- `labels` (string): Comma-separated list of labels
-
-### `list_merge_requests`
-List merge requests from a GitLab project.
-
-**Parameters:**
-- `project_id` (string, required): Project ID or path
-- `state` (string): Filter by state - "opened", "closed", "merged", or "all" (default: "opened")
-- `limit` (integer): Maximum number of MRs to return (default: 20)
-
-### `get_merge_request`
-Get detailed information about a specific merge request.
-
-**Parameters:**
-- `project_id` (string, required): Project ID or path
-- `mr_iid` (integer, required): Merge request IID
-
-### `list_pipelines`
-List CI/CD pipelines for a GitLab project.
-
-**Parameters:**
-- `project_id` (string, required): Project ID or path
-- `status` (string): Filter by status - "running", "pending", "success", "failed", "canceled", "skipped"
-- `limit` (integer): Maximum number of pipelines to return (default: 20)
-
-### `list_groups`
-List GitLab groups.
-
-**Parameters:**
-- `search` (string): Search for groups by name
-- `limit` (integer): Maximum number of groups to return (default: 20)
-
-### `get_user_info`
-Get information about the current authenticated user.
-
-**Parameters:** None
-
-## Available Resources
-
-- `gitlab://user` - Current authenticated user information
-- `gitlab://projects` - List of all accessible projects
-- `gitlab://groups` - List of all accessible groups
-
-## Error Handling
-
-The server includes error handling and will return JSON error messages if operations fail. Common issues:
-
-- **Missing Token**: Ensure `GITLAB_TOKEN` is set in your environment
-- **Invalid Token**: Verify your token is valid and has the required scopes
-- **Network Issues**: Check your GitLab URL and network connectivity
-- **Permission Errors**: Ensure your token has the necessary permissions for the operations you're trying to perform
-
-## Development
-
-To extend the server with additional functionality:
-
-1. Add new tools in the `list_tools()` function
-2. Implement tool handlers in the `call_tool()` function
-3. Add new resources in `list_resources()` and `read_resource()`
+- "List all open issues in project mygroup/myproject"
+- "Create a new issue titled 'Fix bug' in project 123"
+- "Show me merge requests for the main branch"
+- "Get details of pipeline 456 in project mygroup/myproject"
 
 ## License
 
-This project is provided as-is for use with the Model Context Protocol.
-
-## REST API Deployment (Vercel)
-
-This MCP server can also be deployed as a REST API on Vercel. See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
-
-### Quick Deploy
-
-1. Push your code to a Git repository
-2. Import the repository in [Vercel](https://vercel.com/new)
-3. Set environment variables:
-   - `GITLAB_URL`: Your GitLab instance URL
-   - `GITLAB_TOKEN`: Your GitLab Personal Access Token
-4. Deploy!
-
-### API Endpoints
-
-Once deployed, access the API at `https://your-project.vercel.app/api/`:
-
-- `GET /api/` - API documentation
-- `GET /api/user` - Current user info
-- `GET /api/projects` - List projects
-- `GET /api/issues?project_id=<id>` - List issues
-- `POST /api/issues` - Create issue
-- `GET /api/merge_requests?project_id=<id>` - List merge requests
-- `GET /api/pipelines?project_id=<id>` - List pipelines
-- `GET /api/groups` - List groups
-
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for full API documentation and examples.
-
-## Local Testing
-
-To test the API locally before deploying:
-
-1. Install Vercel CLI: `npm install -g vercel`
-2. Set up environment variables in `.env` file
-3. Run: `vercel dev`
-4. Test endpoints at `http://localhost:3000/api/`
-
-See [LOCAL_TESTING.md](./LOCAL_TESTING.md) for detailed local testing instructions.
-
-## Support
-
-For issues or questions:
-- Check the [GitLab API documentation](https://docs.gitlab.com/ee/api/)
-- Review the [python-gitlab library documentation](https://python-gitlab.readthedocs.io/)
-- See [DEPLOYMENT.md](./DEPLOYMENT.md) for Vercel deployment help
-- See [LOCAL_TESTING.md](./LOCAL_TESTING.md) for local testing help
-- See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) for debugging help
+MIT
 
