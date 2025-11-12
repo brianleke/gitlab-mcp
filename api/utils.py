@@ -40,9 +40,16 @@ def cors_response() -> Dict[str, Any]:
 
 def parse_request(request) -> Dict[str, Any]:
     """Parse Vercel request object into a normalized format."""
-    method = request.get("method", "GET")
-    query = request.get("query", {}) or {}
-    body = request.get("body", "")
+    # Handle different request formats
+    if isinstance(request, dict):
+        method = request.get("method", "GET")
+        query = request.get("query", {}) or {}
+        body = request.get("body", "")
+    else:
+        # Fallback for different request object types
+        method = getattr(request, "method", "GET") if hasattr(request, "method") else "GET"
+        query = getattr(request, "query", {}) if hasattr(request, "query") else {}
+        body = getattr(request, "body", "") if hasattr(request, "body") else ""
     
     # Parse JSON body if present
     parsed_body = {}

@@ -3,8 +3,19 @@ API endpoint for GitLab issues.
 """
 
 import json
-from gitlab_client import get_gitlab_client
-from utils import json_response, error_response, cors_response, parse_request
+import sys
+import os
+import traceback
+
+# Add current directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    from api.gitlab_client import get_gitlab_client
+    from api.utils import json_response, error_response, cors_response, parse_request
+except ImportError:
+    from gitlab_client import get_gitlab_client
+    from utils import json_response, error_response, cors_response, parse_request
 
 
 def handler(request):
@@ -119,5 +130,7 @@ def handler(request):
             return error_response("Method not allowed", 405)
     
     except Exception as e:
-        return error_response(str(e), 500)
+        error_msg = str(e)
+        traceback_str = traceback.format_exc()
+        return error_response(f"{error_msg}\n\nTraceback:\n{traceback_str}", 500)
 

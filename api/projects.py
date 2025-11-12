@@ -3,19 +3,31 @@ API endpoint for GitLab projects.
 """
 
 import json
-from gitlab_client import get_gitlab_client
-from utils import json_response, error_response, cors_response, parse_request
+import sys
+import os
+import traceback
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+try:
+    from api.gitlab_client import get_gitlab_client
+    from api.utils import json_response, error_response, cors_response, parse_request
+except ImportError:
+    # Fallback for local imports
+    from gitlab_client import get_gitlab_client
+    from utils import json_response, error_response, cors_response, parse_request
 
 
 def handler(request):
     """Handle projects API requests."""
-    req = parse_request(request)
-    
-    # Handle CORS preflight
-    if req["method"] == "OPTIONS":
-        return cors_response()
-    
     try:
+        req = parse_request(request)
+        
+        # Handle CORS preflight
+        if req["method"] == "OPTIONS":
+            return cors_response()
+        
         client = get_gitlab_client()
         
         if req["method"] == "GET":
@@ -80,5 +92,8 @@ def handler(request):
             return error_response("Method not allowed", 405)
     
     except Exception as e:
-        return error_response(str(e), 500)
+        # Include traceback for debugging
+        error_msg = str(e)
+        traceback_str = traceback.format_exc()
+        return error_response(f"{error_msg}\n\nTraceback:\n{traceback_str}", 500)
 
