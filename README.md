@@ -51,20 +51,27 @@ cp .env.example .env
 
 The server uses stdio (standard input/output) for communication, which is the standard way MCP servers communicate with clients.
 
+**Note**: You typically don't run the server directly. Instead, configure it in your MCP client (Cursor, Claude Desktop, etc.). See [MCP_SETUP.md](./MCP_SETUP.md) for detailed setup instructions.
+
+To test the server directly:
 ```bash
 python server.py
 ```
+(The server will wait for input - this is normal. Press Ctrl+C to exit.)
 
 ### With MCP Clients
 
-To use this server with an MCP client (like Claude Desktop), add it to your MCP configuration:
+To use this server with an MCP client (like Cursor or Claude Desktop), you need to configure it in your MCP client settings.
 
+**See [MCP_SETUP.md](./MCP_SETUP.md) for complete setup instructions.**
+
+Quick example for Cursor:
 ```json
 {
   "mcpServers": {
     "gitlab": {
-      "command": "python",
-      "args": ["/path/to/GitLab MCP/server.py"],
+      "command": "python3",
+      "args": ["/absolute/path/to/GitLab MCP/server.py"],
       "env": {
         "GITLAB_URL": "https://gitlab.com",
         "GITLAB_TOKEN": "your_token_here"
@@ -73,6 +80,8 @@ To use this server with an MCP client (like Claude Desktop), add it to your MCP 
   }
 }
 ```
+
+**Important**: Use the absolute path to `server.py`. The tools will appear in your MCP client once properly configured.
 
 ## Available Tools
 
