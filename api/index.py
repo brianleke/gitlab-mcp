@@ -19,42 +19,22 @@ def verify_bearer_token(auth_header):
 class handler(BaseHTTPRequestHandler):
     """Vercel serverless function handler inheriting from BaseHTTPRequestHandler"""
     
-    def do_GET(self):
-        """Handle GET requests"""
-        self.handle_request('GET')
-    
-    def do_POST(self):
-        """Handle POST requests"""
-        self.handle_request('POST')
-    
-    def do_OPTIONS(self):
-        """Handle OPTIONS requests for CORS"""
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-        self.end_headers()
-        self.wfile.write(json.dumps({}).encode('utf-8'))
-    
-    def handle_request(self, method):
-        """Common request handler for GET and POST"""
+    def _process_request(self):
+        """Process the request and return response data"""
         try:
             # Get authorization header
             auth_header = self.headers.get('Authorization') or self.headers.get('authorization')
             
-            # Verify bearer token (skip for OPTIONS)
-            if method != "OPTIONS" and not verify_bearer_token(auth_header):
-                self.send_response(401)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('WWW-Authenticate', 'Bearer')
-                self.end_headers()
-                error_response = {
-                    "error": "Unauthorized",
-                    "message": "Valid bearer token required"
+            # Verify bearer token
+            if not verify_bearer_token(auth_header):
+                return {
+                    'status': 401,
+                    'headers': {'WWW-Authenticate': 'Bearer'},
+                    'body': {
+                        "error": "Unauthorized",
+                        "message": "Valid bearer token required"
+                    }
                 }
-                self.wfile.write(json.dumps(error_response).encode('utf-8'))
-                return
             
             # Handle health check endpoint
             if self.path == "/" or self.path == "/health":
@@ -73,32 +53,61 @@ class handler(BaseHTTPRequestHandler):
                     ],
                     "note": "This server uses stdio protocol. For local use, run 'python server.py'"
                 }
-                
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps(response_data).encode('utf-8'))
+                return {
+                    'status': 200,
+                    'headers': {},
+                    'body': response_data
+                }
             else:
                 # 404 for unknown paths
-                self.send_response(404)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                error_response = {
-                    "error": "Not Found",
-                    "message": f"Path {self.path} not found"
+                return {
+                    'status': 404,
+                    'headers': {},
+                    'body': {
+                        "error": "Not Found",
+                        "message": f"Path {self.path} not found"
+                    }
                 }
-                self.wfile.write(json.dumps(error_response).encode('utf-8'))
                 
         except Exception as e:
             # Handle errors
-            self.send_response(500)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            error_response = {
-                "error": str(e),
-                "type": type(e).__name__
+            return {
+                'status': 500,
+                'headers': {},
+                'body': {
+                    "error": str(e),
+                    "type": type(e).__name__
+                }
             }
-            self.wfile.write(json.dumps(error_response).encode('utf-8'))
+    
+    def _send_json_response(self, status, headers, body):
+        """Helper to send JSON response"""
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        for key, value in headers.items():
+            self.send_header(key, value)
+        self.end_headers()
+        self.wfile.write(json.dumps(body).encode('utf-8'))
+    
+    def do_GET(self):
+        """Handle GET requests"""
+        result = self._process_request()
+        self._send_json_response(result['status'], result['headers'], result['body'])
+    
+    def do_POST(self):
+        """Handle POST requests"""
+        result = self._process_request()
+        self._send_json_response(result['status'], result['headers'], result['body'])
+    
+    def do_OPTIONS(self):
+        """Handle OPTIONS requests for CORS"""
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        self.end_headers()
+        self.wfile.write(json.dumps({}).encode('utf-8'))
     
     def log_message(self, format, *args):
         """Override to suppress default logging"""
