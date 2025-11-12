@@ -12,9 +12,9 @@ from http.server import BaseHTTPRequestHandler
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from api.utils import send_response
+    from api.utils import send_response, require_auth
 except ImportError:
-    from utils import send_response
+    from utils import send_response, require_auth
 
 
 class handler(BaseHTTPRequestHandler):
@@ -22,6 +22,7 @@ class handler(BaseHTTPRequestHandler):
     
     def do_GET(self):
         try:
+            # Index endpoint is public (documentation only)
             docs = {
                 "name": "GitLab MCP API",
                 "version": "1.0.0",
@@ -92,9 +93,9 @@ class handler(BaseHTTPRequestHandler):
                     }
                 },
                 "authentication": {
-                    "type": "Token",
-                    "header": "Not required (uses server-side token)",
-                    "note": "GitLab token is configured server-side via GITLAB_TOKEN environment variable"
+                    "type": "Bearer Token",
+                    "header": "Authorization: Bearer <token>",
+                    "note": "All endpoints require a Bearer token in the Authorization header. Configure tokens via API_BEARER_TOKENS environment variable (or GITLAB_TOKEN as fallback)."
                 }
             }
             send_response(self, 200, docs)

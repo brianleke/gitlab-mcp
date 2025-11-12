@@ -62,6 +62,7 @@ vercel env add GITLAB_TOKEN
    - Add the following:
      - `GITLAB_URL`: Your GitLab instance URL (e.g., `https://gitlab.com`)
      - `GITLAB_TOKEN`: Your GitLab Personal Access Token
+     - `API_BEARER_TOKENS`: One or more bearer tokens (comma-separated) for API authentication (optional, defaults to GITLAB_TOKEN if not set)
 
 5. Deploy!
 
@@ -76,6 +77,11 @@ Set these in your Vercel project settings:
 - **GITLAB_TOKEN**: Your GitLab Personal Access Token
   - Get one from: https://gitlab.com/-/user_settings/personal_access_tokens
   - Required scopes: `api`, `read_api`
+
+- **API_BEARER_TOKENS**: API Bearer tokens for client authentication (optional)
+  - One or more tokens separated by commas (e.g., `token1,token2,token3`)
+  - If not set, `GITLAB_TOKEN` will be used as the bearer token
+  - Clients must include `Authorization: Bearer <token>` header in requests
 
 ### 4. Verify Deployment
 

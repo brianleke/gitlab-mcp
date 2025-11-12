@@ -12,10 +12,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
     from api.gitlab_client import get_gitlab_client
-    from api.utils import send_response, parse_query_string
+    from api.utils import send_response, parse_query_string, require_auth
 except ImportError:
     from gitlab_client import get_gitlab_client
-    from utils import send_response, parse_query_string
+    from utils import send_response, parse_query_string, require_auth
 
 
 class handler(BaseHTTPRequestHandler):
@@ -23,6 +23,12 @@ class handler(BaseHTTPRequestHandler):
     
     def do_GET(self):
         try:
+            # Check authentication
+            is_auth, auth_error = require_auth(self)
+            if not is_auth:
+                send_response(self, 401, {"error": auth_error})
+                return
+            
             client = get_gitlab_client()
             params = parse_query_string(self.path)
             

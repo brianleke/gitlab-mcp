@@ -206,10 +206,23 @@ Once deployed, access the API at `https://your-project.vercel.app/api/`:
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for full API documentation and examples.
 
+## Local Testing
+
+To test the API locally before deploying:
+
+1. Install Vercel CLI: `npm install -g vercel`
+2. Set up environment variables in `.env` file
+3. Run: `vercel dev`
+4. Test endpoints at `http://localhost:3000/api/`
+
+See [LOCAL_TESTING.md](./LOCAL_TESTING.md) for detailed local testing instructions.
+
 ## Support
 
 For issues or questions:
 - Check the [GitLab API documentation](https://docs.gitlab.com/ee/api/)
 - Review the [python-gitlab library documentation](https://python-gitlab.readthedocs.io/)
 - See [DEPLOYMENT.md](./DEPLOYMENT.md) for Vercel deployment help
+- See [LOCAL_TESTING.md](./LOCAL_TESTING.md) for local testing help
+- See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) for debugging help
 
