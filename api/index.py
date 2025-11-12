@@ -4,27 +4,24 @@ Main API index endpoint - provides API documentation.
 
 import sys
 import os
+import json
 import traceback
+from http.server import BaseHTTPRequestHandler
 
 # Add current directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from api.utils import json_response, cors_response, parse_request
+    from api.utils import send_response
 except ImportError:
-    from utils import json_response, cors_response, parse_request
+    from utils import send_response
 
 
-def handler(request):
+class handler(BaseHTTPRequestHandler):
     """Handle index API requests."""
-    try:
-        req = parse_request(request)
-        
-        # Handle CORS preflight
-        if req["method"] == "OPTIONS":
-            return cors_response()
-        
-        if req["method"] == "GET":
+    
+    def do_GET(self):
+        try:
             docs = {
                 "name": "GitLab MCP API",
                 "version": "1.0.0",
@@ -100,11 +97,16 @@ def handler(request):
                     "note": "GitLab token is configured server-side via GITLAB_TOKEN environment variable"
                 }
             }
-            return json_response(docs)
-        
-        return json_response({"error": "Method not allowed"}, 405)
-    except Exception as e:
-        error_msg = str(e)
-        traceback_str = traceback.format_exc()
-        return json_response({"error": f"{error_msg}\n\nTraceback:\n{traceback_str}"}, 500)
+            send_response(self, 200, docs)
+        except Exception as e:
+            error_msg = str(e)
+            traceback_str = traceback.format_exc()
+            send_response(self, 500, {"error": f"{error_msg}\n\nTraceback:\n{traceback_str}"})
+    
+    def do_OPTIONS(self):
+        send_response(self, 200, {}, cors=True)
+    
+    def log_message(self, format, *args):
+        # Suppress default logging
+        pass
 

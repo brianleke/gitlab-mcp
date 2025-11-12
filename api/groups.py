@@ -2,35 +2,29 @@
 API endpoint for GitLab groups.
 """
 
-import json
 import sys
 import os
 import traceback
+from http.server import BaseHTTPRequestHandler
 
 # Add current directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
     from api.gitlab_client import get_gitlab_client
-    from api.utils import json_response, error_response, cors_response, parse_request
+    from api.utils import send_response, parse_query_string
 except ImportError:
     from gitlab_client import get_gitlab_client
-    from utils import json_response, error_response, cors_response, parse_request
+    from utils import send_response, parse_query_string
 
 
-def handler(request):
+class handler(BaseHTTPRequestHandler):
     """Handle groups API requests."""
-    req = parse_request(request)
     
-    # Handle CORS preflight
-    if req["method"] == "OPTIONS":
-        return cors_response()
-    
-    try:
-        client = get_gitlab_client()
-        
-        if req["method"] == "GET":
-            params = req["args"]
+    def do_GET(self):
+        try:
+            client = get_gitlab_client()
+            params = parse_query_string(self.path)
             search = params.get("search")
             limit = int(params.get("limit", 20))
             
@@ -52,13 +46,14 @@ def handler(request):
                 }
                 for g in groups
             ]
-            return json_response(result)
-        
-        else:
-            return error_response("Method not allowed", 405)
+            send_response(self, 200, result)
+        except Exception as e:
+            error_msg = str(e)
+            traceback_str = traceback.format_exc()
+            send_response(self, 500, {"error": f"{error_msg}\n\nTraceback:\n{traceback_str}"})
     
-    except Exception as e:
-        error_msg = str(e)
-        traceback_str = traceback.format_exc()
-        return error_response(f"{error_msg}\n\nTraceback:\n{traceback_str}", 500)
-
+    def do_OPTIONS(self):
+        send_response(self, 200, {}, cors=True)
+    
+    def log_message(self, format, *args):
+        pass

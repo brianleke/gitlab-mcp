@@ -2,43 +2,34 @@
 API endpoint for GitLab projects.
 """
 
-import json
 import sys
 import os
 import traceback
+from http.server import BaseHTTPRequestHandler
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add current directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
     from api.gitlab_client import get_gitlab_client
-    from api.utils import json_response, error_response, cors_response, parse_request
+    from api.utils import send_response, parse_query_string
 except ImportError:
-    # Fallback for local imports
     from gitlab_client import get_gitlab_client
-    from utils import json_response, error_response, cors_response, parse_request
+    from utils import send_response, parse_query_string
 
 
-def handler(request):
+class handler(BaseHTTPRequestHandler):
     """Handle projects API requests."""
-    try:
-        req = parse_request(request)
-        
-        # Handle CORS preflight
-        if req["method"] == "OPTIONS":
-            return cors_response()
-        
-        client = get_gitlab_client()
-        
-        if req["method"] == "GET":
-            # Parse query parameters
-            params = req["args"]
+    
+    def do_GET(self):
+        try:
+            client = get_gitlab_client()
+            params = parse_query_string(self.path)
+            
             owned = params.get("owned", "false").lower() == "true"
             starred = params.get("starred", "false").lower() == "true"
             search = params.get("search")
             limit = int(params.get("limit", 20))
-            
-            # Get project ID from path if present
             project_id = params.get("id")
             
             if project_id:
@@ -60,7 +51,7 @@ def handler(request):
                     "star_count": project.star_count,
                     "forks_count": project.forks_count,
                 }
-                return json_response(result)
+                send_response(self, 200, result)
             else:
                 # List projects
                 list_params = {}
@@ -86,14 +77,14 @@ def handler(request):
                     }
                     for p in projects
                 ]
-                return json_response(result)
-        
-        else:
-            return error_response("Method not allowed", 405)
+                send_response(self, 200, result)
+        except Exception as e:
+            error_msg = str(e)
+            traceback_str = traceback.format_exc()
+            send_response(self, 500, {"error": f"{error_msg}\n\nTraceback:\n{traceback_str}"})
     
-    except Exception as e:
-        # Include traceback for debugging
-        error_msg = str(e)
-        traceback_str = traceback.format_exc()
-        return error_response(f"{error_msg}\n\nTraceback:\n{traceback_str}", 500)
-
+    def do_OPTIONS(self):
+        send_response(self, 200, {}, cors=True)
+    
+    def log_message(self, format, *args):
+        pass

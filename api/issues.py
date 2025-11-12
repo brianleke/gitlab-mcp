@@ -2,40 +2,35 @@
 API endpoint for GitLab issues.
 """
 
-import json
 import sys
 import os
 import traceback
+from http.server import BaseHTTPRequestHandler
 
 # Add current directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
     from api.gitlab_client import get_gitlab_client
-    from api.utils import json_response, error_response, cors_response, parse_request
+    from api.utils import send_response, parse_query_string, read_request_body
 except ImportError:
     from gitlab_client import get_gitlab_client
-    from utils import json_response, error_response, cors_response, parse_request
+    from utils import send_response, parse_query_string, read_request_body
 
 
-def handler(request):
+class handler(BaseHTTPRequestHandler):
     """Handle issues API requests."""
-    req = parse_request(request)
     
-    # Handle CORS preflight
-    if req["method"] == "OPTIONS":
-        return cors_response()
-    
-    try:
-        client = get_gitlab_client()
-        
-        if req["method"] == "GET":
-            params = req["args"]
+    def do_GET(self):
+        try:
+            client = get_gitlab_client()
+            params = parse_query_string(self.path)
             project_id = params.get("project_id")
             issue_iid = params.get("issue_iid")
             
             if not project_id:
-                return error_response("project_id parameter is required", 400)
+                send_response(self, 400, {"error": "project_id parameter is required"})
+                return
             
             project = client.projects.get(project_id)
             
@@ -63,7 +58,7 @@ def handler(request):
                     "updated_at": issue.updated_at,
                     "web_url": issue.web_url,
                 }
-                return json_response(result)
+                send_response(self, 200, result)
             else:
                 # List issues
                 state = params.get("state", "opened")
@@ -94,18 +89,27 @@ def handler(request):
                     }
                     for issue in issues
                 ]
-                return json_response(result)
-        
-        elif req["method"] == "POST":
-            # Create issue
-            body = req["body"]
-            project_id = body.get("project_id") or req["args"].get("project_id")
+                send_response(self, 200, result)
+        except Exception as e:
+            error_msg = str(e)
+            traceback_str = traceback.format_exc()
+            send_response(self, 500, {"error": f"{error_msg}\n\nTraceback:\n{traceback_str}"})
+    
+    def do_POST(self):
+        try:
+            client = get_gitlab_client()
+            body = read_request_body(self)
+            params = parse_query_string(self.path)
+            
+            project_id = body.get("project_id") or params.get("project_id")
             title = body.get("title")
             
             if not project_id:
-                return error_response("project_id is required", 400)
+                send_response(self, 400, {"error": "project_id is required"})
+                return
             if not title:
-                return error_response("title is required", 400)
+                send_response(self, 400, {"error": "title is required"})
+                return
             
             project = client.projects.get(project_id)
             issue_data = {
@@ -124,13 +128,14 @@ def handler(request):
                 "web_url": issue.web_url,
                 "message": "Issue created successfully"
             }
-            return json_response(result, 201)
-        
-        else:
-            return error_response("Method not allowed", 405)
+            send_response(self, 201, result)
+        except Exception as e:
+            error_msg = str(e)
+            traceback_str = traceback.format_exc()
+            send_response(self, 500, {"error": f"{error_msg}\n\nTraceback:\n{traceback_str}"})
     
-    except Exception as e:
-        error_msg = str(e)
-        traceback_str = traceback.format_exc()
-        return error_response(f"{error_msg}\n\nTraceback:\n{traceback_str}", 500)
-
+    def do_OPTIONS(self):
+        send_response(self, 200, {}, cors=True)
+    
+    def log_message(self, format, *args):
+        pass
