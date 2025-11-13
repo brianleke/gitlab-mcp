@@ -1,4 +1,0 @@
-# Minimal requirements for Vercel handler
-# The handler only uses built-in modules (json, os)
-# No external dependencies needed
-

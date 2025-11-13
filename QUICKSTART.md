@@ -1,111 +1,90 @@
 # Quick Start Guide
 
-Get your GitLab MCP server up and running in 5 minutes!
-
-## Step 1: Install Dependencies
+## 1. Install Dependencies
 
 ```bash
-pip install -r requirements.txt
+npm install
 ```
 
-## Step 2: Get a GitLab Token
+## 2. Get Your GitLab Token
 
-1. Go to [GitLab Settings → Access Tokens](https://gitlab.com/-/user_settings/personal_access_tokens)
-2. Create a new token with these scopes:
-   - `api` (for full access)
-   - Or `read_api` + `read_user` + `read_repository` (for read-only)
-3. Copy the token
+1. Go to https://gitlab.com/-/user_settings/personal_access_tokens
+2. Create a new token with `api` scope
+3. Copy the token (you'll need it for the next step)
 
-## Step 3: Set Environment Variables
+## 3. Set Environment Variables in Vercel
 
-**Option A: Export in terminal (temporary)**
-```bash
-export GITLAB_TOKEN="your_token_here"
-export GITLAB_BASE_URL="https://gitlab.com/api/v4"
-```
-
-**Option B: Create .env file (recommended)**
-```bash
-cp env.example .env
-# Then edit .env and add your tokens:
-# - GITLAB_TOKEN: Your GitLab personal access token
-# - SERVER_BEARER_TOKEN: (Optional) A bearer token to secure HTTP endpoints
-```
-
-## Step 4: Test the Server
+Before deploying, set the required environment variables:
 
 ```bash
-python test_server.py
+# Install Vercel CLI globally (if not already installed)
+npm install -g vercel
+
+# Set the GitLab token
+vercel env add GITLAB_PRIVATE_TOKEN
+# Paste your GitLab token when prompted
+
+# Generate and set the MCP Bearer token
+# First, generate a secure token:
+openssl rand -hex 32
+
+# Then set it:
+vercel env add MCP_BEARER_TOKEN
+# Paste the generated token when prompted
 ```
 
-This will verify your connection to GitLab.
+Or set these in the Vercel dashboard under Project Settings > Environment Variables.
 
-## Step 5: Connect Your MCP Client
+## 4. Deploy to Vercel
 
-### For Cursor:
-
-1. Open Cursor Settings
-2. Find MCP settings (or create `.cursor/mcp.json`)
-3. Add:
-
-```json
-{
-  "mcpServers": {
-    "gitlab": {
-      "command": "python",
-      "args": ["/Users/brainbetechuoh/Desktop/GitLab MCP/server.py"],
-      "env": {
-        "GITLAB_TOKEN": "your_token_here",
-        "GITLAB_BASE_URL": "https://gitlab.com/api/v4"
-      }
-    }
-  }
-}
+```bash
+# Deploy
+vercel
 ```
 
-**Important:** Use the absolute path to `server.py`!
+Follow the prompts to link your project or create a new one.
 
-4. Restart Cursor
+## 5. Test Your Deployment
 
-### For Claude Desktop:
+Once deployed, your MCP server will be available at:
+```
+https://your-project.vercel.app/api
+```
 
-1. Open the config file:
-   - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-   - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-   - **Linux**: `~/.config/Claude/claude_desktop_config.json`
+You can test it using the MCP Inspector:
 
-2. Add the same configuration as above
+```bash
+npx @modelcontextprotocol/inspector@latest https://your-project.vercel.app/api
+```
 
-3. Restart Claude Desktop
+## 6. Configure Your MCP Client
 
-## Step 6: Verify It Works
+Add your deployment URL to your MCP client configuration. Include the `MCP_BEARER_TOKEN` in the `Authorization` header:
 
-In your MCP client (Cursor or Claude), try asking:
-- "List my GitLab projects"
-- "Show me open issues in project X"
-- "Create a new issue in project Y"
+```
+Authorization: Bearer your-mcp-bearer-token-here
+```
 
-## Troubleshooting
+Example using curl:
+```bash
+curl -H "Authorization: Bearer your-mcp-bearer-token-here" \
+     -H "Content-Type: application/json" \
+     -X POST https://your-project.vercel.app/api \
+     -d '{"method": "tools/call", "params": {"name": "list_gitlab_projects", "arguments": {}}}'
+```
 
-**"Server not found"**
-- Use absolute paths, not relative paths
-- Make sure Python is in your PATH
+The GitLab token is configured via environment variables and used automatically for GitLab API calls, so you don't need to pass it when calling tools.
 
-**"Permission denied"**
-- Make sure the script is readable: `chmod +r server.py`
+## Optional: Self-Hosted GitLab
 
-**"401 Unauthorized"**
-- Check your GitLab token is correct
-- Make sure the token has the right scopes
+If using a self-hosted GitLab instance, set the environment variable in Vercel:
 
-**"Module not found"**
-- Install dependencies: `pip install -r requirements.txt`
+```bash
+vercel env add GITLAB_API_URL
+# Enter: https://your-gitlab-instance.com/api/v4
+```
 
-## Next Steps
+Or set it in the Vercel dashboard under Project Settings > Environment Variables.
 
-- Read [README.md](README.md) for full documentation
-- Read [DEPLOYMENT.md](DEPLOYMENT.md) to deploy to Vercel
-- Explore all available tools in the README
-
-Happy coding! 🚀
+**Note:** You still need to set `GITLAB_PRIVATE_TOKEN` with a token from your self-hosted instance.
 
