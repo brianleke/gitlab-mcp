@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 // GitLab API base URL - can be customized for self-hosted instances
 const GITLAB_API_BASE = process.env.GITLAB_API_URL || 'https://gitlab.com/api/v4';
-const GITLAB_TOKEN = process.env.GITLAB_PRIVATE_TOKEN;
+const GITLAB_TOKEN = process.env.GITLAB_TOKEN;
 const SERVER_BEARER_TOKEN = process.env.SERVER_BEARER_TOKEN;
 
 if (!GITLAB_TOKEN) {
