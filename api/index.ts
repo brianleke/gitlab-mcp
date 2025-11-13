@@ -391,6 +391,12 @@ const handler = createMcpHandler(
 
 // Token verification function for withMcpAuth
 const verifyToken = async (req: Request, bearerToken: string | undefined) => {
+
+  console.log('########################################################');
+  console.log('bearerToken', bearerToken);
+  console.log('SERVER_BEARER_TOKEN', SERVER_BEARER_TOKEN);
+  console.log('########################################################');
+
   if (!bearerToken) {
     return undefined;
   }
