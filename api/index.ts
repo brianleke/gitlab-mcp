@@ -1,4 +1,4 @@
-import { createMcpHandler } from 'mcp-handler';
+import { createMcpHandler, withMcpAuth } from 'mcp-handler';
 import { z } from 'zod';
 
 // GitLab API base URL - can be customized for self-hosted instances
@@ -11,32 +11,7 @@ if (!GITLAB_TOKEN) {
 }
 
 if (!SERVER_BEARER_TOKEN) {
-  throw new Error('Auth token environment variable is required');
-}
-
-// Helper function to extract bearer token from request
-function extractBearerToken(request: Request): string | null {
-  const authHeader = request.headers.get('Authorization');
-  if (!authHeader) {
-    return null;
-  }
-
-  // Check for Bearer token format
-  if (authHeader.startsWith('Bearer ')) {
-    return authHeader.substring(7);
-  }
-
-  // Also accept just the token without "Bearer " prefix
-  return authHeader;
-}
-
-// Helper function to validate bearer token
-function validateBearerToken(request: Request): boolean {
-  const providedToken = extractBearerToken(request);
-  if (!providedToken) {
-    return false;
-  }
-  return providedToken === SERVER_BEARER_TOKEN;
+  throw new Error('SERVER_BEARER_TOKEN environment variable is required');
 }
 
 // Helper function to make GitLab API requests
@@ -414,33 +389,29 @@ const handler = createMcpHandler(
   { basePath: '/api' }
 );
 
-// Wrap handlers to add bearer token authentication
-async function authenticatedHandler(request: Request) {
-  // Validate bearer token
-  if (!validateBearerToken(request)) {
-    return new Response(
-      JSON.stringify({ 
-        error: 'Unauthorized. Provide a valid Bearer token in the Authorization header.' 
-      }),
-      { 
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
+// Token verification function for withMcpAuth
+const verifyToken = async (req: Request, bearerToken: string | undefined) => {
+  if (!bearerToken) {
+    return undefined;
   }
 
-  // Token is valid, proceed with the request
-  return handler(request);
-}
+  // Validate the bearer token matches the expected token
+  if (bearerToken !== SERVER_BEARER_TOKEN) {
+    return undefined;
+  }
 
-export async function GET(request: Request) {
-  return authenticatedHandler(request);
-}
+  // Return token metadata
+  return {
+    token: bearerToken,
+    scopes: ['mcp:tools'],
+    clientId: 'mcp-client',
+  };
+};
 
-export async function POST(request: Request) {
-  return authenticatedHandler(request);
-}
+// Wrap handler with authentication
+const authHandler = withMcpAuth(handler, verifyToken, {
+  required: true,
+  requiredScopes: ['mcp:tools'],
+});
 
-export async function DELETE(request: Request) {
-  return authenticatedHandler(request);
-}
+export { authHandler as GET, authHandler as POST, authHandler as DELETE };
