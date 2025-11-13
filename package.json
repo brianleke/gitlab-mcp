@@ -17,7 +17,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "mcp-handler": "^0.1.0",
+    "mcp-handler": "^1.0.3",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "zod": "^3.22.4"
   },
