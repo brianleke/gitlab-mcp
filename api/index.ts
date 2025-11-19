@@ -265,6 +265,74 @@ const handler = createMcpHandler(
       }
     );
 
+    // Create merge request
+    server.tool(
+      'create_gitlab_merge_request',
+      'Creates a new merge request in a GitLab project',
+      {
+        projectId: z.string().describe('Project ID or path'),
+        sourceBranch: z.string().describe('Source branch name'),
+        targetBranch: z.string().describe('Target branch name (usually main or master)'),
+        title: z.string().describe('Merge request title'),
+        description: z.string().optional().describe('Merge request description'),
+        targetProjectId: z.number().optional().describe('Target project ID (for cross-project merge requests)'),
+        assigneeId: z.number().optional().describe('Assignee user ID'),
+        assigneeIds: z.array(z.number()).optional().describe('Array of assignee user IDs'),
+        reviewerIds: z.array(z.number()).optional().describe('Array of reviewer user IDs'),
+        labels: z.string().optional().describe('Comma-separated list of label names'),
+        milestoneId: z.number().optional().describe('Milestone ID'),
+        removeSourceBranch: z.boolean().optional().describe('Remove source branch when merge request is merged'),
+        squash: z.boolean().optional().describe('Squash commits into a single commit when merging'),
+      },
+      async ({ 
+        projectId, 
+        sourceBranch, 
+        targetBranch, 
+        title, 
+        description, 
+        targetProjectId,
+        assigneeId,
+        assigneeIds,
+        reviewerIds,
+        labels, 
+        milestoneId, 
+        removeSourceBranch,
+        squash 
+      }) => {
+        const body: any = {
+          source_branch: sourceBranch,
+          target_branch: targetBranch,
+          title,
+        };
+
+        if (description) body.description = description;
+        if (targetProjectId) body.target_project_id = targetProjectId;
+        if (assigneeId) body.assignee_id = assigneeId;
+        if (assigneeIds) body.assignee_ids = assigneeIds;
+        if (reviewerIds) body.reviewer_ids = reviewerIds;
+        if (labels) body.labels = labels;
+        if (milestoneId) body.milestone_id = milestoneId;
+        if (removeSourceBranch !== undefined) body.remove_source_branch = removeSourceBranch;
+        if (squash !== undefined) body.squash = squash;
+
+        const mergeRequest = await gitlabRequest(
+          `/projects/${encodeURIComponent(projectId)}/merge_requests`,
+          {
+            method: 'POST',
+            body: JSON.stringify(body),
+          }
+        );
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(mergeRequest, null, 2),
+            },
+          ],
+        };
+      }
+    );
+
     // List project branches
     server.tool(
       'list_gitlab_branches',
@@ -379,6 +447,47 @@ const handler = createMcpHandler(
             {
               type: 'text',
               text: JSON.stringify(groups, null, 2),
+            },
+          ],
+        };
+      }
+    );
+
+    // Get group members
+    server.tool(
+      'get_gitlab_group_members',
+      'Gets users (members) that belong to a GitLab group',
+      {
+        groupId: z.string().describe('Group ID or path'),
+        includeInherited: z.boolean().optional().describe('Include inherited members from parent groups'),
+        query: z.string().optional().describe('Search members by username or email'),
+        perPage: z.number().optional().describe('Number of results per page'),
+        page: z.number().optional().describe('Page number'),
+      },
+      async ({ groupId, includeInherited, query, perPage, page }) => {
+        let endpoint = `/groups/${encodeURIComponent(groupId)}/members`;
+        
+        // Use /members/all endpoint if including inherited members
+        if (includeInherited) {
+          endpoint = `/groups/${encodeURIComponent(groupId)}/members/all`;
+        }
+
+        const params = new URLSearchParams();
+        if (query) params.append('query', query);
+        if (perPage) params.append('per_page', perPage.toString());
+        if (page) params.append('page', page.toString());
+
+        const queryString = params.toString();
+        if (queryString) {
+          endpoint += `?${queryString}`;
+        }
+        
+        const members = await gitlabRequest(endpoint);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(members, null, 2),
             },
           ],
         };

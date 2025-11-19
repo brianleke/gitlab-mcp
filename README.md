@@ -8,11 +8,11 @@ This MCP server provides the following GitLab API tools:
 
 - **Projects**: List and get project details
 - **Issues**: List, get, and create issues
-- **Merge Requests**: List and get merge request details
+- **Merge Requests**: List, get, and create merge requests
 - **Branches**: List project branches
 - **Commits**: List project commits
 - **Users**: Get authenticated user information
-- **Groups**: List GitLab groups
+- **Groups**: List GitLab groups and get group members
 
 ## Prerequisites
 
@@ -40,14 +40,14 @@ npm install
 
 **Required:** Set the following environment variables in Vercel:
 
-1. **`GITLAB_PRIVATE_TOKEN`** - Your GitLab personal access token:
+1. **`GITLAB_TOKEN`** - Your GitLab personal access token:
 ```bash
-vercel env add GITLAB_PRIVATE_TOKEN
+vercel env add GITLAB_TOKEN
 ```
 
-2. **`MCP_BEARER_TOKEN`** - A secure token to protect access to your MCP server:
+2. **`SERVER_BEARER_TOKEN`** - A secure token to protect access to your MCP server:
 ```bash
-vercel env add MCP_BEARER_TOKEN
+vercel env add SERVER_BEARER_TOKEN
 ```
 
 Generate a secure random token using:
@@ -82,13 +82,13 @@ Or connect your repository to Vercel through the Vercel dashboard for automatic 
 Once deployed, configure your MCP client to connect to your Vercel deployment. The endpoint will be:
 
 ```
-https://your-project.vercel.app/api
+https://your-project.vercel.app/api/mcp
 ```
 
-**Authentication:** The MCP server is protected by Bearer token authentication. Include the `MCP_BEARER_TOKEN` in the `Authorization` header when making requests:
+**Authentication:** The MCP server is protected by Bearer token authentication. Include the `SERVER_BEARER_TOKEN` in the `Authorization` header when making requests:
 
 ```
-Authorization: Bearer your-mcp-bearer-token-here
+Authorization: Bearer your-server-bearer-token-here
 ```
 
 The GitLab token is configured via environment variables and used automatically for GitLab API calls, so you don't need to pass it when calling tools.
@@ -164,6 +164,24 @@ Gets detailed information about a specific merge request.
 - `projectId` (required): Project ID or path
 - `mergeRequestIid` (required): MR IID (internal ID)
 
+### `create_gitlab_merge_request`
+Creates a new merge request in a GitLab project.
+
+**Parameters:**
+- `projectId` (required): Project ID or path
+- `sourceBranch` (required): Source branch name
+- `targetBranch` (required): Target branch name (usually main or master)
+- `title` (required): Merge request title
+- `description` (optional): Merge request description
+- `targetProjectId` (optional): Target project ID (for cross-project merge requests)
+- `assigneeId` (optional): Assignee user ID
+- `assigneeIds` (optional): Array of assignee user IDs
+- `reviewerIds` (optional): Array of reviewer user IDs
+- `labels` (optional): Comma-separated label names
+- `milestoneId` (optional): Milestone ID
+- `removeSourceBranch` (optional): Remove source branch when merge request is merged
+- `squash` (optional): Squash commits into a single commit when merging
+
 ### `list_gitlab_branches`
 Lists branches for a project.
 
@@ -201,9 +219,19 @@ Lists GitLab groups accessible to the authenticated user.
 - `perPage` (optional): Results per page
 - `page` (optional): Page number
 
+### `get_gitlab_group_members`
+Gets users (members) that belong to a GitLab group.
+
+**Parameters:**
+- `groupId` (required): Group ID or path
+- `includeInherited` (optional): Include inherited members from parent groups
+- `query` (optional): Search members by username or email
+- `perPage` (optional): Results per page
+- `page` (optional): Page number
+
 ## Security Considerations
 
-1. **MCP Server Protection**: The MCP server requires a Bearer token for authentication. This protects your server from unauthorized access. Generate a strong, random token for `MCP_BEARER_TOKEN`.
+1. **MCP Server Protection**: The MCP server requires a Bearer token for authentication. This protects your server from unauthorized access. Generate a strong, random token for `SERVER_BEARER_TOKEN`.
 
 2. **Store tokens securely**: Both the GitLab token and MCP Bearer token are stored in Vercel's environment variables, which are encrypted and never exposed in your code or logs.
 
@@ -215,7 +243,7 @@ Lists GitLab groups accessible to the authenticated user.
 
 6. **Rate limiting**: Be aware of GitLab's API rate limits. The server will pass through any rate limit errors from GitLab.
 
-7. **Separate concerns**: The `MCP_BEARER_TOKEN` is for protecting access to the MCP server, while `GITLAB_PRIVATE_TOKEN` is used for GitLab API authentication. Keep them separate and secure.
+7. **Separate concerns**: The `SERVER_BEARER_TOKEN` is for protecting access to the MCP server, while `GITLAB_TOKEN` is used for GitLab API authentication. Keep them separate and secure.
 
 ## Local Development
 
